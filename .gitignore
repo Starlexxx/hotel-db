@@ -1,3 +1,6 @@
 /.idea/
 
 .DS_Store
+
+*.json
+!room_descriptions.json

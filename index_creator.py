@@ -1,8 +1,6 @@
 import os
 import json
 import logging
-import time
-
 from elasticsearch import Elasticsearch
 from py2neo import Graph, Node, Relationship
 
@@ -34,8 +32,9 @@ def load_json_data(file_name):
 
 def index_data(es, index_name, data):
     for item in data:
-        es.index(index=index_name, id=item["index"], body=item["body"])
-    logger.info(f"Data indexed")
+        es.index(index=index_name, id=item["index"], body={**item["body"], "id": item["id"]})
+    es.indices.refresh(index=index_name)
+    logger.info(f"Data indexed in {index_name}")
 
 
 def clear_neo4j(graph):
@@ -44,36 +43,29 @@ def clear_neo4j(graph):
 
 
 def enrich_neo4j(es, graph):
-    response = es.search(index="hotel", body={"query": {"match_all": {}}})
+    response_clients = es.search(index="client", body={"query": {"match_all": {}}}, size=30)
+    response_rooms = es.search(index="room", body={"query": {"match_all": {}}}, size=30)
 
-    clients = []
-    rooms = []
+    clients = [hit["_source"] for hit in response_clients['hits']['hits']]
+    rooms = [hit["_source"] for hit in response_rooms['hits']['hits']]
+    client_room = {}
+    for i, client in enumerate(clients):
+        room = next((r for r in rooms if r.get("id") == client.get("id_номера")), None)
+        if room:
+            client_room[i] = room
 
-    print(response['hits']['hits'])
-    for hit in response['hits']['hits']:
-        source = hit["_source"]
-        if "id_клиента" in source:
-            clients.append(source)
-        elif "описание_номера" in source:
-            rooms.append(source)
-
-    print(clients)
-    print(rooms)
-
-    for client in clients:
-        client_node = Node("Client", id=client["id_клиента"], arrival_date=client["дата_прибытия"],
-                           **client["карточка_регистрации"])  # unpack the dictionary into separate properties
+    for client_i, room in client_room.items():
+        client = clients[client_i]
+        client_node = Node("Client", id=client["id"], arrival_date=client["дата_прибытия"],
+                           **client["карточка_регистрации"])
         graph.create(client_node)
-        for room in rooms:
-            if room["id"] == client["id_номера"]:
-                room_node = Node("Room", id=room["id"], price=room["стоимость_день"])
-                graph.create(room_node)
-                stay_relationship = Relationship(client_node, "STAYED", room_node,
-                                                 duration=client["продолжительность_проживания"])
-                graph.create(stay_relationship)
-                print(
-                    f"Client {client['id_клиента']} stayed in room {room['id']} for {client['продолжительность_проживания']} days")
-                break
+        room_node = Node("Room", id=room["id"], cost=room["стоимость_день"])
+        graph.create(room_node)
+        stay_relationship = Relationship(client_node, "STAYED", room_node,
+                                         duration=client["продолжительность_проживания"])
+        graph.create(stay_relationship)
+        logger.info(
+            f"Client {client['id']} stayed in room {room['id']} for {client['продолжительность_проживания']} days")
 
     logger.info("Data enriched")
 
@@ -84,9 +76,9 @@ def main():
         logger.error("Elasticsearch server is not running")
         exit(1)
 
-    es.indices.delete(index="hotel", ignore=[400, 404])
+    es.indices.delete(index="room", ignore=[400, 404])
+    es.indices.delete(index="client", ignore=[400, 404])
 
-    index_name = "hotel"
     settings = {
         "settings": {
             "analysis": {
@@ -113,7 +105,8 @@ def main():
             }
         }
     }
-    es.indices.create(index=index_name, body=settings)
+    es.indices.create(index="room", body=settings)
+    es.indices.create(index="client", body=settings)
 
     client_mapping = {
         "properties": {
@@ -127,13 +120,13 @@ def main():
                     "Место рождения": {"type": "text", "analyzer": "russian"},
                     "Документ, удостоверяющий личность": {"type": "text", "analyzer": "russian"},
                     "Серия/номер": {"type": "integer"},
-                    "Дата выдачи": {"type": "date"},
+                    "Дата выдачи": {"type": "date", "format": "dd/MM/yyyy"},
                     "Код подразделения": {"type": "text"},
                     "Кем выдан": {"type": "text", "analyzer": "russian"},
                     "Адрес места жительства (регистрации)": {"type": "text", "analyzer": "russian"},
                 }
             },
-            "дата_прибытия": {"type": "date"},
+            "дата_прибытия": {"type": "date", "format": "dd/MM/yyyy"},
             "продолжительность_проживания": {"type": "integer"},
             "услуга": {"type": "text", "analyzer": "russian"},
             "id_номера": {"type": "integer"}
@@ -145,17 +138,17 @@ def main():
             "стоимость_день": {"type": "integer"}
         }
     }
-    es.indices.put_mapping(index=index_name, body=client_mapping)
-    es.indices.put_mapping(index=index_name, body=room_mapping)
 
-    clients = load_json_data('clients.json')
+    es.indices.put_mapping(index="room", body=room_mapping)
+    es.indices.put_mapping(index="client", body=client_mapping)
+
     rooms = load_json_data('rooms.json')
+    clients = load_json_data('clients.json')
 
-    index_data(es, "hotel", clients)
-    index_data(es, "hotel", rooms)
+    index_data(es, "room", rooms)
+    index_data(es, "client", clients)
 
     graph = create_graph_connection()
-    time.sleep(20)
     clear_neo4j(graph)
     enrich_neo4j(es, graph)
 

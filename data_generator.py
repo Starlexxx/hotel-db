@@ -1,5 +1,7 @@
+import hashlib
 import json
 from faker import Faker
+from datetime import datetime, timedelta
 import pymorphy3
 import random
 
@@ -38,25 +40,30 @@ class DataGenerator:
     def __init__(self):
         self.fake = Faker('ru_RU')
         self.morph = pymorphy3.MorphAnalyzer(lang='ru')
-        self.room_numbers = [i for i in range(1, 101)]
-
-    def generate_sentence(self):
-        sentence = self.fake.sentence()
-        words = sentence.split(' ')
-        for i in range(len(words)):
-            p = self.morph.parse(words[i])[0]
-            inflected_word = p.inflect({'nomn'})
-            words[i] = inflected_word.word if inflected_word else words[i]
-        return ' '.join(words)
+        self.room_numbers = [i for i in range(1, 31)]
+        self.client_ids = [i for i in range(1, 31)]
+        self.date_rooms = {}
+        self.TIME_FORMAT = "%d/%m/%Y"
 
     def generate_client(self):
-        arrival_date = str(self.fake.date_between(start_date='-10y', end_date='now'))
+        client_id = self.client_ids.pop()
+        arrival_date = self.fake.date_between(start_date='-10y', end_date='now')
+        living_days = self.fake.random_int(min=1, max=30)
+        departure_date = arrival_date + timedelta(days=living_days)
+        period = f"{arrival_date.strftime(self.TIME_FORMAT)}-{departure_date.strftime(self.TIME_FORMAT)}"
+        room_id = random.choice(self.room_numbers)
+        while self.date_rooms.get(period) and room_id in self.date_rooms[period]:
+            room_id = random.choice(self.room_numbers)
+
+        if period in self.date_rooms:
+            self.date_rooms[period].append(room_id)
+
         return {
-            "index": self.fake.random_int(min=1, max=100),
+            "index": hashlib.md5(str(datetime.now().timestamp()).encode()).hexdigest(),
             "doc_type": "client",
-            "id": self.fake.uuid4(),
+            "id": client_id,
             "body": {
-                "id_клиента": self.fake.random_int(min=1, max=100),
+                "id_клиента": client_id,
                 "карточка_регистрации": {
                     "Фамилия": self.fake.last_name(),
                     "Имя/Отчество": self.fake.first_name() + " " + self.fake.middle_name(),
@@ -66,24 +73,25 @@ class DataGenerator:
                     "Документ, удостоверяющий личность": self.fake.random_element(
                         elements=("Паспорт", "Водительское удостоверение")),
                     "Серия/номер": self.fake.random_int(min=1000, max=9999),
-                    "Дата выдачи": arrival_date,
+                    "Дата выдачи": self.fake.date_between(start_date='-10y', end_date=arrival_date).strftime(
+                        self.TIME_FORMAT),
                     "Код подразделения": str(self.fake.random_int(min=1000, max=9999)) + "-" + str(
                         self.fake.random_int(min=1000, max=9999)),
                     "Кем выдан": self.fake.company(),
                     "Адрес места жительства (регистрации)": self.fake.address(),
                 },
-                "дата_прибытия": arrival_date,
-                "продолжительность_проживания": self.fake.random_int(min=1, max=30),
+                "дата_прибытия": arrival_date.strftime(self.TIME_FORMAT),
+                "продолжительность_проживания": living_days,
                 "услуга": random.sample(self.SERVICES, k=self.fake.random_int(min=1, max=len(self.SERVICES))),
-                "id_номера": random.choice(self.room_numbers)
+                "id_номера": room_id
             }
         }
 
     def generate_room(self):
         return {
-            "index": self.fake.random_int(min=1, max=100),
+            "index": hashlib.md5(str(datetime.now().timestamp()).encode()).hexdigest(),
             "doc_type": "room",
-            "id": random.choice(self.room_numbers),
+            "id": self.room_numbers.pop(),
             "body": {
                 "описание_номера": room_description(),
                 "стоимость_день": self.fake.random_int(min=1000, max=5000)
