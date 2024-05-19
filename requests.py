@@ -2,7 +2,7 @@ import logging
 from elasticsearch import Elasticsearch
 from py2neo import Graph
 
-from index_creator import get_env_variable, create_graph_connection
+from db_processor import get_env_variable, create_graph_connection
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,7 +22,8 @@ def check_index_exists(es, index):
 
 def main():
     es = create_es_instance()
-    check_index_exists(es, "hotel")
+    check_index_exists(es, "client")
+    check_index_exists(es, "room")
 
     logger.info("Clients in rooms: %s", clients_in_rooms(es))
     logger.info("Number of lux rooms: %s", number_of_lux_rooms(es))
@@ -33,14 +34,13 @@ def clients_in_rooms(es):
     query = {
         "size": 0,
         "aggs": {
-            "arrival_date": {
+            "clients_by_arrival_date": {
                 "date_histogram": {
                     "field": "дата_прибытия",
-                    "fixed_interval": "365d",
-                    "format": "yyyy"
+                    "calendar_interval": "year"
                 },
                 "aggs": {
-                    "rooms": {
+                    "clients_by_room": {
                         "terms": {
                             "field": "id_номера"
                         }
@@ -49,19 +49,21 @@ def clients_in_rooms(es):
             }
         }
     }
-    return es.search(index="hotel", body=query)
+    return es.search(index="client", body=query)
 
 
 def number_of_lux_rooms(es):
     query = {
-        "size": 0,
         "query": {
-            "match": {
-                "описание_номера": "люкс"
+            "match_phrase": {
+                "описание_номера": {
+                    "query": "Мы рады предложить",
+                    "slop": 0
+                }
             }
         }
     }
-    return es.search(index="hotel", body=query)
+    return es.search(index="room", body=query)
 
 
 def get_client_with_max_cost():

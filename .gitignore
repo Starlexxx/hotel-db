@@ -4,3 +4,5 @@
 
 *.json
 !room_descriptions.json
+
+/data/

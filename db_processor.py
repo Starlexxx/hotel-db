@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+
 from elasticsearch import Elasticsearch
 from py2neo import Graph, Node, Relationship
 
@@ -63,7 +64,7 @@ def enrich_neo4j(es, graph):
         graph.create(room_node)
         stay_relationship = Relationship(client_node, "STAYED", room_node,
                                          duration=client["продолжительность_проживания"])
-        graph.create(stay_relationship)
+        graph.create(stay_relationship) # TODO: затирается последняя связь, клиент может останавиливаться в номере несколько раз
         logger.info(
             f"Client {client['id']} stayed in room {room['id']} for {client['продолжительность_проживания']} days")
 
