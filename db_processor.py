@@ -62,11 +62,24 @@ def enrich_neo4j(es, graph):
         graph.create(client_node)
         room_node = Node("Room", id=room["id"], cost=room["стоимость_день"])
         graph.create(room_node)
-        stay_relationship = Relationship(client_node, "STAYED", room_node,
-                                         duration=client["продолжительность_проживания"])
-        graph.create(stay_relationship) # TODO: затирается последняя связь, клиент может останавиливаться в номере несколько раз
-        logger.info(
-            f"Client {client['id']} stayed in room {room['id']} for {client['продолжительность_проживания']} days")
+        tx = graph.begin()
+        try:
+            relation_query = """
+                MATCH (client:Client {id: $client_id}), (room:Room {id: $room_id})
+                CREATE (client)-[:STAYED {duration: $duration}]->(room)
+            """
+            parameters = {
+                "client_id": client["id"],
+                "room_id": room["id"],
+                "duration": client["продолжительность_проживания"]
+            }
+            tx.run(relation_query, parameters)
+            logger.info(
+                f"Client {client['id']} stayed in room {room['id']} for {client['продолжительность_проживания']} days")
+        except Exception as e:
+            logger.error(f"Failed to create relationship: {e}")
+            logger.info(
+                f"Client {client['id']} stayed in room {room['id']} for {client['продолжительность_проживания']} days")
 
     logger.info("Data enriched")
 

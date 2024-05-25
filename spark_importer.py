@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from elasticsearch import Elasticsearch
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
-from hdfs import InsecureClient
 
 spark = SparkSession.builder.appName("Hotel").getOrCreate()
 es = Elasticsearch('http://localhost:9200')
@@ -101,9 +100,13 @@ def main():
     rooms_df = spark.createDataFrame(data=rooms_data, schema=ROOM_SCHEMA)
     stayed_df = spark.createDataFrame(data=stayed_data, schema=STAYED_SCHEMA)
 
-    clients_df.write.csv(path='hdfs://52947b40d6c89c71f3ee5549a1c64c2500f202507f98030252ea04d55fb5b25d:50010/clients.csv', mode='overwrite', header=True)
-    rooms_df.write.csv(path='hdfs://localhost:8020/rooms.csv', mode='overwrite', header=True)
-    stayed_df.write.csv(path='hdfs://localhost:8020/stayed.csv', mode='overwrite', header=True)
+    clients_df.repartition(1).write.csv(path='exports/clients.csv', mode='overwrite', header=True)
+    rooms_df.repartition(1).write.csv(path='exports/rooms.csv', mode='overwrite', header=True)
+    stayed_df.repartition(1).write.csv(path='exports/stayed.csv', mode='overwrite', header=True)
+
+    clients_df.write.csv(path='hdfs://namenode:9000/clients.csv', mode='overwrite', header=True)
+    rooms_df.write.csv(path='hdfs://namenode:9000/rooms.csv', mode='overwrite', header=True)
+    stayed_df.write.csv(path='hdfs://namenode:9000/stayed.csv', mode='overwrite', header=True)
 
 
 if __name__ == "__main__":
